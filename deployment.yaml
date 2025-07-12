@@ -1,0 +1,93 @@
+# This workflow automates the deployment of Python code to an AWS EC2 instance.
+
+name: Deploy Python App to EC2
+
+# Configure when the workflow runs.
+# This workflow will run on every push to the 'main' branch.
+on:
+  push:
+    branches:
+      - main
+
+# Define the jobs to be executed as part of this workflow.
+jobs:
+  deploy:
+    # Specify the runner environment for this job.
+    # 'ubuntu-latest' provides a fresh Ubuntu environment for each run.
+    runs-on: ubuntu-latest
+
+    # Define the steps for the 'deploy' job.
+    steps:
+      # Step 1: Checkout the code from the repository.
+      # This action checks out your repository under $GITHUB_WORKSPACE,
+      # so your workflow can access it.
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Set up Python environment.
+      # This action sets up a Python environment with a specified version.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9' # Specify your Python version here (e.g., '3.8', '3.9', '3.10')
+
+      # Step 3: Install Python dependencies.
+      # This step installs packages listed in your 'requirements.txt' file.
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt # Ensure you have a requirements.txt file
+
+      # Step 4: Configure AWS credentials.
+      # This action configures AWS credentials for your workflow, allowing
+      # subsequent steps to interact with AWS services.
+      # The credentials are provided via GitHub Secrets for security.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          #aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ EC2_ACCESS_KEY }}
+          aws-region: us-east-1 # Replace with your AWS region (e.g., 'us-west-2', 'eu-central-1')
+
+      # Step 5: Set up SSH agent and add private key.
+      # This is crucial for securely connecting to your EC2 instance via SSH.
+      # The private key is stored as a GitHub Secret.
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+
+      # Step 6: Deploy to EC2 instance.
+      # This step connects to your EC2 instance via SSH and executes commands.
+      # It assumes your Python application is in a Git repository on the EC2 instance
+      # and can be updated by pulling the latest changes.
+      - name: Deploy application
+        run: |
+          # Ensure strict host key checking is disabled if you haven't added the host to known_hosts.
+          # For production, it's recommended to add the host to known_hosts beforehand.
+          # ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+          ssh ${{ EC2_USER }}@${{ EC2_HOST }} << 'EOF'
+            # Navigate to your application directory on the EC2 instance.
+            # Replace '/var/www/my-python-app' with the actual path to your application.
+            cd /var/www/my-python-app
+
+            # Pull the latest code from your Git repository.
+            # Ensure your EC2 instance has Git installed and configured.
+            git pull
+
+            # Optional: Reinstall dependencies if requirements.txt has changed.
+            # This can be resource-intensive; consider running only if necessary.
+            # pip install -r requirements.txt
+
+            # Restart your application service.
+            # Replace 'my-python-app.service' with the actual name of your systemd service.
+            # If you're using Gunicorn, you might restart that service.
+            sudo systemctl restart my-python-app.service
+
+            # You can add more commands here, e.g., running migrations, clearing cache, etc.
+            # Example:
+            # python manage.py migrate # For Django applications
+            # sudo supervisorctl restart my-gunicorn-app # If using Supervisor for Gunicorn
+
+            echo "Deployment complete!"
+          EOF
